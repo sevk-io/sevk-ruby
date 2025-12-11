@@ -1,0 +1,38 @@
+# Bundler
+/.bundle/
+/vendor/bundle
+Gemfile.lock
+
+# Gem build
+*.gem
+pkg/
+
+# Test artifacts
+/coverage/
+/spec/examples.txt
+
+# RSpec
+.rspec_status
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Documentation
+/doc/
+/rdoc/
+/.yardoc/
+
+# Temporary files
+/tmp/
