@@ -17,6 +17,8 @@ require_relative "sevk/resources/topics"
 require_relative "sevk/resources/segments"
 require_relative "sevk/resources/subscriptions"
 require_relative "sevk/resources/emails"
+require_relative "sevk/resources/webhooks"
+require_relative "sevk/resources/events"
 require_relative "sevk/markup/renderer"
 
 module Sevk
@@ -207,6 +209,50 @@ module Sevk
     class << self
       def send(params)
         Sevk.client.emails.send(**params)
+      end
+    end
+  end
+
+  module Webhooks
+    class << self
+      def list(params = {})
+        Sevk.client.webhooks.list(**params)
+      end
+
+      def get(id)
+        Sevk.client.webhooks.get(id)
+      end
+
+      def create(params)
+        Sevk.client.webhooks.create(params)
+      end
+
+      def update(id, params)
+        Sevk.client.webhooks.update(id, params)
+      end
+
+      def delete(id)
+        Sevk.client.webhooks.delete(id)
+      end
+
+      def test(id)
+        Sevk.client.webhooks.test(id)
+      end
+
+      def list_events
+        Sevk.client.webhooks.list_events
+      end
+    end
+  end
+
+  module Events
+    class << self
+      def list(params = {})
+        Sevk.client.events.list(**params)
+      end
+
+      def stats
+        Sevk.client.events.stats
       end
     end
   end

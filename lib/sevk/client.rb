@@ -45,6 +45,19 @@ module Sevk
       @emails ||= Resources::Emails.new(self)
     end
 
+    def webhooks
+      @webhooks ||= Resources::Webhooks.new(self)
+    end
+
+    def events
+      @events ||= Resources::Events.new(self)
+    end
+
+    # Get project usage and limits
+    def get_usage
+      get("/limits")
+    end
+
     def get(path, params = {})
       request(:get, path, params)
     end

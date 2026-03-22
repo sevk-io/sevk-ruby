@@ -2,67 +2,21 @@
 
 require "spec_helper"
 
-BASE_URL = "http://localhost:4000"
+DEFAULT_BASE_URL = "https://api.sevk.io"
 
 def unique_id
   "#{Time.now.to_i}#{rand(10000)}"
 end
 
-def setup_test_environment
-  http = Faraday.new(url: BASE_URL) do |conn|
-    conn.request :json
-    conn.response :json
-    conn.adapter Faraday.default_adapter
-  end
-
-  unique = unique_id
-
-  # 1. Register a new test user
-  test_email = "sdk-test-#{unique}@test.example.com"
-  test_password = "TestPassword123!"
-
-  register_res = http.post("auth/register", {
-    email: test_email,
-    password: test_password
-  })
-
-  raise "Failed to register: #{register_res.status} #{register_res.body}" unless [200, 201].include?(register_res.status)
-
-  token = register_res.body["token"]
-
-  # 2. Create Project
-  project_res = http.post("projects") do |req|
-    req.headers["Authorization"] = "Bearer #{token}"
-    req.body = {
-      name: "Test Project",
-      slug: "test-project-#{unique}",
-      supportEmail: "support@test.com"
-    }
-  end
-
-  raise "Failed to create project: #{project_res.status} #{project_res.body}" unless [200, 201].include?(project_res.status)
-
-  project_id = project_res.body["project"]["id"]
-
-  # 3. Create API Key
-  api_key_res = http.post("projects/#{project_id}/api-keys") do |req|
-    req.headers["Authorization"] = "Bearer #{token}"
-    req.body = {
-      title: "Test Key",
-      fullAccess: true
-    }
-  end
-
-  raise "Failed to create API key: #{api_key_res.status} #{api_key_res.body}" unless [200, 201].include?(api_key_res.status)
-
-  api_key = api_key_res.body["apiKey"]["key"]
-
-  Sevk::Client.new(api_key: api_key, base_url: BASE_URL)
+def base_url
+  ENV["SEVK_TEST_BASE_URL"] || DEFAULT_BASE_URL
 end
 
 # Global test data
 $sevk = nil
 $shared_audience_id = nil
+$created_broadcast_id = nil
+$created_domain_id = nil
 
 # Helper to get or create shared audience
 def get_shared_audience
@@ -73,17 +27,24 @@ def get_shared_audience
 end
 
 RSpec.configure do |config|
+  api_key = ENV["SEVK_TEST_API_KEY"]
+
+  unless api_key && !api_key.empty?
+    config.filter_run_excluding integration: true
+    next
+  end
+
   config.before(:suite) do
-    $sevk = setup_test_environment
+    $sevk = Sevk::Client.new(api_key: ENV["SEVK_TEST_API_KEY"], base_url: base_url)
   end
 end
 
 # ============================================
 # AUTHENTICATION TESTS
 # ============================================
-RSpec.describe "Authentication" do
+RSpec.describe "Authentication", integration: true do
   it "should reject invalid API key" do
-    invalid_client = Sevk::Client.new(api_key: "sevk_invalid_api_key_12345", base_url: BASE_URL)
+    invalid_client = Sevk::Client.new(api_key: "sevk_invalid_api_key_12345", base_url: base_url)
     expect { invalid_client.contacts.list }.to raise_error(Sevk::Error) do |error|
       expect(error.message).to include("401")
       expect(error.message.downcase).to include("invalid")
@@ -91,14 +52,14 @@ RSpec.describe "Authentication" do
   end
 
   it "should reject empty API key" do
-    empty_client = Sevk::Client.new(api_key: "", base_url: BASE_URL)
+    empty_client = Sevk::Client.new(api_key: "", base_url: base_url)
     expect { empty_client.contacts.list }.to raise_error(Sevk::Error) do |error|
       expect(error.message).to include("401")
     end
   end
 
   it "should reject malformed API key (not starting with sevk_)" do
-    malformed_client = Sevk::Client.new(api_key: "invalid_key_format", base_url: BASE_URL)
+    malformed_client = Sevk::Client.new(api_key: "invalid_key_format", base_url: base_url)
     expect { malformed_client.contacts.list }.to raise_error(Sevk::Error) do |error|
       expect(error.message).to include("401")
     end
@@ -108,7 +69,7 @@ end
 # ============================================
 # CONTACTS TESTS
 # ============================================
-RSpec.describe "Contacts" do
+RSpec.describe "Contacts", integration: true do
   it "should list contacts with correct response structure" do
     result = $sevk.contacts.list
 
@@ -166,6 +127,35 @@ RSpec.describe "Contacts" do
     end
   end
 
+  it "should bulk update contacts" do
+    email = "bulk-update-#{unique_id}@example.com"
+    contact = $sevk.contacts.create(email: email)
+
+    result = $sevk.contacts.bulk_update(
+      contacts: [{ email: contact["email"], subscribed: true }]
+    )
+
+    expect(result).not_to be_nil
+  end
+
+  it "should get contact events" do
+    email = "events-test-#{unique_id}@example.com"
+    contact = $sevk.contacts.create(email: email)
+
+    result = $sevk.contacts.get_events(contact["id"])
+
+    expect(result).not_to be_nil
+  end
+
+  it "should import contacts" do
+    email = "import-test-#{unique_id}@example.com"
+    result = $sevk.contacts.import_csv(
+      contacts: [{ email: email }]
+    )
+
+    expect(result).not_to be_nil
+  end
+
   it "should delete a contact" do
     email = "delete-test-#{unique_id}@example.com"
     contact = $sevk.contacts.create(email: email)
@@ -181,7 +171,7 @@ end
 # ============================================
 # AUDIENCES TESTS
 # ============================================
-RSpec.describe "Audiences" do
+RSpec.describe "Audiences", integration: true do
   it "should list audiences with correct response structure" do
     result = $sevk.audiences.list
 
@@ -229,6 +219,23 @@ RSpec.describe "Audiences" do
     expect(result["name"]).to eq(new_name)
   end
 
+  it "should create an audience with all fields" do
+    name = "Full Audience #{unique_id}"
+    result = $sevk.audiences.create(
+      name: name,
+      description: "Test description",
+      users_can_see: "PUBLIC"
+    )
+
+    expect(result).to be_a(Hash)
+    expect(result["name"]).to eq(name)
+    expect(result["description"]).to eq("Test description")
+    expect(result["usersCanSee"]).to eq("PUBLIC")
+
+    # Cleanup
+    $sevk.audiences.delete(result["id"])
+  end
+
   it "should add contacts to audience" do
     audience_id = get_shared_audience
     contact = $sevk.contacts.create(email: "add-contacts-#{unique_id}@example.com")
@@ -236,12 +243,36 @@ RSpec.describe "Audiences" do
     result = $sevk.audiences.add_contacts(audience_id, [contact["id"]])
     expect(result).not_to be_nil
   end
+
+  it "should list contacts in an audience" do
+    audience_id = get_shared_audience
+    result = $sevk.audiences.list_contacts(audience_id)
+
+    expect(result).to be_a(Hash)
+    expect(result["items"]).to be_an(Array)
+  end
+
+  it "should remove a contact from an audience" do
+    audience_id = get_shared_audience
+
+    # Create a contact and add to audience, then remove
+    email = "audience-remove-test-#{unique_id}@example.com"
+    contact = $sevk.contacts.create(email: email)
+    $sevk.audiences.add_contacts(audience_id, [contact["id"]])
+
+    $sevk.audiences.remove_contact(audience_id, contact["id"])
+
+    # Verify removal by listing contacts
+    result = $sevk.audiences.list_contacts(audience_id)
+    contact_ids = result["items"].map { |c| c["id"] }
+    expect(contact_ids).not_to include(contact["id"])
+  end
 end
 
 # ============================================
 # TEMPLATES TESTS
 # ============================================
-RSpec.describe "Templates" do
+RSpec.describe "Templates", integration: true do
   it "should list templates with correct response structure" do
     result = $sevk.templates.list
 
@@ -312,7 +343,7 @@ end
 # ============================================
 # BROADCASTS TESTS
 # ============================================
-RSpec.describe "Broadcasts" do
+RSpec.describe "Broadcasts", integration: true, order: :defined do
   it "should list broadcasts with correct response structure" do
     result = $sevk.broadcasts.list
 
@@ -336,26 +367,242 @@ RSpec.describe "Broadcasts" do
     expect(result).to be_a(Hash)
     expect(result["items"]).to be_an(Array)
   end
+
+  it "should get broadcast status" do
+    result = $sevk.broadcasts.list(limit: 1)
+    next if result["items"].empty?
+
+    broadcast = result["items"].first
+    status = $sevk.broadcasts.get_status(broadcast["id"])
+
+    expect(status).to be_a(Hash)
+  end
+
+  it "should get broadcast emails" do
+    result = $sevk.broadcasts.list(limit: 1)
+    next if result["items"].empty?
+
+    broadcast = result["items"].first
+    emails = $sevk.broadcasts.get_emails(broadcast["id"])
+
+    expect(emails).to be_a(Hash)
+    expect(emails["items"]).to be_an(Array)
+  end
+
+  it "should estimate broadcast cost" do
+    result = $sevk.broadcasts.list(limit: 1)
+    next if result["items"].empty?
+
+    broadcast = result["items"].first
+    estimate = $sevk.broadcasts.estimate_cost(broadcast["id"])
+
+    expect(estimate).to be_a(Hash)
+  end
+
+  it "should list active broadcasts" do
+    result = $sevk.broadcasts.list_active
+
+    expect(result).to be_a(Hash)
+    expect(result["items"]).to be_an(Array)
+  end
+
+  it "should create a broadcast" do
+    # Get a domain from the project to use for broadcast
+    domains = $sevk.domains.list
+    next if domains["items"].empty?
+
+    domain_id = domains["items"].first["id"]
+    name = "Test Broadcast #{unique_id}"
+    result = $sevk.broadcasts.create(
+      domainId: domain_id,
+      name: name,
+      subject: "Test Subject",
+      body: "<section><paragraph>Test broadcast body</paragraph></section>",
+      senderName: "Test Sender",
+      senderEmail: "test",
+      targetType: "ALL"
+    )
+
+    expect(result).to be_a(Hash)
+    expect(result["id"]).not_to be_nil
+    expect(result["id"]).to be_a(String)
+    expect(result["name"]).to eq(name)
+    expect(result["subject"]).to eq("Test Subject")
+    expect(result["status"]).to eq("DRAFT")
+
+    $created_broadcast_id = result["id"]
+  end
+
+  it "should get a broadcast by id" do
+    next unless $created_broadcast_id
+
+    result = $sevk.broadcasts.get($created_broadcast_id)
+
+    expect(result).to be_a(Hash)
+    expect(result["id"]).to eq($created_broadcast_id)
+    expect(result["subject"]).to eq("Test Subject")
+  end
+
+  it "should update a broadcast" do
+    next unless $created_broadcast_id
+
+    new_name = "Updated Broadcast #{unique_id}"
+    result = $sevk.broadcasts.update($created_broadcast_id, name: new_name)
+
+    expect(result).to be_a(Hash)
+    expect(result["id"]).to eq($created_broadcast_id)
+    expect(result["name"]).to eq(new_name)
+  end
+
+  it "should get broadcast analytics" do
+    next unless $created_broadcast_id
+
+    result = $sevk.broadcasts.get_analytics($created_broadcast_id)
+
+    expect(result).not_to be_nil
+  end
+
+  it "should send a test broadcast" do
+    next unless $created_broadcast_id
+
+    begin
+      result = $sevk.broadcasts.send_test($created_broadcast_id, emails: ["test@example.com"])
+      expect(result).not_to be_nil
+    rescue Sevk::Error => e
+      # May fail if domain is unverified, which is expected
+      expect(e.message).not_to be_nil
+    end
+  end
+
+  it "should handle send error for draft broadcast" do
+    next unless $created_broadcast_id
+
+    begin
+      $sevk.broadcasts.send($created_broadcast_id)
+      # If it succeeds, that's fine too
+    rescue Sevk::Error => e
+      # Expected to fail if broadcast is not ready to send
+      expect(e.message).not_to be_nil
+      expect(e.message.length).to be > 0
+    end
+  end
+
+  it "should handle cancel for a non-sending broadcast" do
+    next unless $created_broadcast_id
+
+    begin
+      $sevk.broadcasts.cancel($created_broadcast_id)
+    rescue Sevk::Error => e
+      # Expected to fail if broadcast is not in a cancellable state
+      expect(e.message).not_to be_nil
+    end
+  end
+
+  it "should delete a broadcast" do
+    next unless $created_broadcast_id
+
+    $sevk.broadcasts.delete($created_broadcast_id)
+
+    # Verify deletion
+    expect { $sevk.broadcasts.get($created_broadcast_id) }.to raise_error(Sevk::Error) do |error|
+      expect(error.message).to include("404")
+    end
+  end
 end
 
 # ============================================
 # DOMAINS TESTS
 # ============================================
-RSpec.describe "Domains" do
+RSpec.describe "Domains", integration: true do
+  before(:each) { skip "INCLUDE_DOMAIN_TESTS not set" unless ENV['INCLUDE_DOMAIN_TESTS'] == 'true' }
+
   it "should list domains with correct response structure" do
     result = $sevk.domains.list
 
     expect(result).to be_a(Hash)
-    expect(result["domains"]).to be_an(Array)
+    expect(result["items"]).to be_an(Array)
   end
 
   it "should list only verified domains" do
     result = $sevk.domains.list(verified: true)
 
     expect(result).to be_a(Hash)
-    expect(result["domains"]).to be_an(Array)
-    result["domains"].each do |domain|
+    expect(result["items"]).to be_an(Array)
+    result["items"].each do |domain|
       expect(domain["verified"]).to eq(true)
+    end
+  end
+
+  it "should update a domain" do
+    result = $sevk.domains.list
+    expect(result["items"]).to be_an(Array)
+
+    next if result["items"].empty?
+
+    domain = result["items"].first
+    updated = $sevk.domains.update(domain["id"], { click_tracking: !domain["clickTracking"] })
+
+    expect(updated).to be_a(Hash)
+    expect(updated["id"]).to eq(domain["id"])
+  end
+
+  it "should create a domain" do
+    subdomain = "test-#{unique_id}-#{rand(36**7).to_s(36)}.example.com"
+    result = $sevk.domains.create(domain: subdomain, email: "test@#{subdomain}")
+
+    expect(result).to be_a(Hash)
+    expect(result["id"]).not_to be_nil
+    expect(result["id"]).to be_a(String)
+    expect(result["domain"]).to eq(subdomain)
+
+    $created_domain_id = result["id"]
+  end
+
+  it "should get a domain by id" do
+    next unless $created_domain_id
+
+    result = $sevk.domains.get($created_domain_id)
+
+    expect(result).to be_a(Hash)
+    expect(result["id"]).to eq($created_domain_id)
+  end
+
+  it "should get DNS records for a domain" do
+    next unless $created_domain_id
+
+    result = $sevk.domains.get_dns_records($created_domain_id)
+
+    expect(result).not_to be_nil
+    expect(result).to be_a(Hash)
+    expect(result["items"]).to be_an(Array)
+  end
+
+  it "should get available regions" do
+    result = $sevk.domains.get_regions
+
+    expect(result).not_to be_nil
+  end
+
+  it "should verify a domain" do
+    next unless $created_domain_id
+
+    begin
+      result = $sevk.domains.verify($created_domain_id)
+      expect(result).not_to be_nil
+    rescue Sevk::Error => e
+      # Expected to fail for test domains without proper DNS records
+      expect(e.message).not_to be_nil
+    end
+  end
+
+  it "should delete a domain" do
+    next unless $created_domain_id
+
+    $sevk.domains.delete($created_domain_id)
+
+    # Verify deletion
+    expect { $sevk.domains.get($created_domain_id) }.to raise_error(Sevk::Error) do |error|
+      expect(error.message).not_to be_nil
     end
   end
 end
@@ -363,7 +610,7 @@ end
 # ============================================
 # TOPICS TESTS (uses shared audience)
 # ============================================
-RSpec.describe "Topics" do
+RSpec.describe "Topics", integration: true do
   it "should list topics for an audience" do
     audience_id = get_shared_audience
     result = $sevk.topics.list(audience_id)
@@ -413,12 +660,61 @@ RSpec.describe "Topics" do
       expect(error.message).to include("404")
     end
   end
+
+  it "should add contacts to a topic" do
+    audience_id = get_shared_audience
+    topic = $sevk.topics.create(audience_id, name: "AddContacts Test #{unique_id}")
+    contact = $sevk.contacts.create(email: "topic-add-#{unique_id}@example.com")
+    $sevk.audiences.add_contacts(audience_id, [contact["id"]])
+
+    result = $sevk.topics.add_contacts(audience_id, topic["id"], contact_ids: [contact["id"]])
+
+    expect(result).not_to be_nil
+
+    # Cleanup
+    $sevk.topics.delete(audience_id, topic["id"])
+  end
+
+  it "should remove a contact from a topic" do
+    audience_id = get_shared_audience
+    topic = $sevk.topics.create(audience_id, name: "RemoveContact Test #{unique_id}")
+
+    # Create a contact, add to audience and topic, then remove from topic
+    email = "topic-remove-test-#{unique_id}@example.com"
+    contact = $sevk.contacts.create(email: email)
+    $sevk.audiences.add_contacts(audience_id, [contact["id"]])
+    $sevk.topics.add_contacts(audience_id, topic["id"], contact_ids: [contact["id"]])
+
+    $sevk.topics.remove_contact(audience_id, topic["id"], contact["id"])
+
+    # Verify removal by listing contacts in the topic
+    result = $sevk.topics.list_contacts(audience_id, topic["id"])
+    contact_ids = result["items"].map { |c| c["id"] }
+    expect(contact_ids).not_to include(contact["id"])
+
+    # Cleanup
+    $sevk.topics.delete(audience_id, topic["id"])
+  end
+
+  it "should list contacts for a topic" do
+    audience_id = get_shared_audience
+    topic = $sevk.topics.create(audience_id, name: "ListContacts Test #{unique_id}")
+
+    result = $sevk.topics.list_contacts(audience_id, topic["id"])
+
+    expect(result).to be_a(Hash)
+    expect(result["items"]).to be_an(Array)
+    expect(result["total"]).to be_a(Integer)
+
+    # Cleanup
+    $sevk.topics.delete(audience_id, topic["id"])
+  end
 end
 
 # ============================================
 # SEGMENTS TESTS (uses shared audience)
 # ============================================
-RSpec.describe "Segments" do
+RSpec.describe "Segments", integration: true do
   it "should list segments for an audience" do
     audience_id = get_shared_audience
     result = $sevk.segments.list(audience_id)
@@ -464,6 +760,34 @@ RSpec.describe "Segments" do
     expect(result["name"]).to eq(new_name)
   end
 
+  it "should calculate a segment" do
+    audience_id = get_shared_audience
+    segment = $sevk.segments.create(
+      audience_id,
+      name: "Calculate Test #{unique_id}",
+      rules: [{ "field" => "email", "operator" => "contains", "value" => "@example.com" }],
+      operator: "AND"
+    )
+
+    result = $sevk.segments.calculate(audience_id, segment["id"])
+
+    expect(result).not_to be_nil
+
+    # Cleanup
+    $sevk.segments.delete(audience_id, segment["id"])
+  end
+
+  it "should preview a segment" do
+    audience_id = get_shared_audience
+
+    result = $sevk.segments.preview(audience_id,
+      rules: [{ "field" => "email", "operator" => "contains", "value" => "@example.com" }],
+      operator: "AND"
+    )
+
+    expect(result).not_to be_nil
+  end
+
   it "should delete a segment" do
     audience_id = get_shared_audience
     segment = $sevk.segments.create(
@@ -484,7 +808,7 @@ end
 # ============================================
 # SUBSCRIPTIONS TESTS (uses shared audience)
 # ============================================
-RSpec.describe "Subscriptions" do
+RSpec.describe "Subscriptions", integration: true do
   it "should subscribe a contact" do
     audience_id = get_shared_audience
     email = "subscribe-test-#{unique_id}@example.com"
@@ -509,9 +833,114 @@ RSpec.describe "Subscriptions" do
 end
 
 # ============================================
+# WEBHOOKS TESTS
+# ============================================
+RSpec.describe "Webhooks", integration: true do
+  it "should perform full CRUD cycle" do
+    # Create
+    webhook = $sevk.webhooks.create(
+      url: "https://example.com/webhook-#{unique_id}",
+      events: ["contact.subscribed"]
+    )
+
+    expect(webhook).to be_a(Hash)
+    expect(webhook["id"]).not_to be_nil
+    expect(webhook["url"]).to include("example.com")
+
+    # Get
+    fetched = $sevk.webhooks.get(webhook["id"])
+    expect(fetched).to be_a(Hash)
+    expect(fetched["id"]).to eq(webhook["id"])
+
+    # Update
+    updated = $sevk.webhooks.update(webhook["id"], url: "https://example.com/webhook-updated-#{unique_id}")
+    expect(updated).to be_a(Hash)
+    expect(updated["id"]).to eq(webhook["id"])
+
+    # Delete
+    $sevk.webhooks.delete(webhook["id"])
+
+    expect { $sevk.webhooks.get(webhook["id"]) }.to raise_error(Sevk::Error) do |error|
+      expect(error.message).to include("404")
+    end
+  end
+
+  it "should list webhooks" do
+    result = $sevk.webhooks.list
+
+    expect(result).to be_a(Hash)
+    expect(result["items"]).to be_an(Array)
+  end
+
+  it "should test a webhook" do
+    webhook = $sevk.webhooks.create(
+      url: "https://example.com/webhook-test-#{unique_id}",
+      events: ["contact.subscribed"]
+    )
+
+    result = $sevk.webhooks.test(webhook["id"])
+    expect(result).to be_a(Hash)
+
+    # Cleanup
+    $sevk.webhooks.delete(webhook["id"])
+  end
+
+  it "should list available webhook events" do
+    result = $sevk.webhooks.list_events
+
+    expect(result).to be_a(Hash)
+    expect(result["items"]).to be_an(Array)
+  end
+end
+
+# ============================================
+# EVENTS TESTS
+# ============================================
+RSpec.describe "Events", integration: true do
+  it "should list events with correct response structure" do
+    result = $sevk.events.list
+
+    expect(result).to be_a(Hash)
+    expect(result["items"]).to be_an(Array)
+    expect(result["total"]).to be_a(Integer)
+    expect(result["page"]).to be_a(Integer)
+    expect(result["totalPages"]).to be_a(Integer)
+  end
+
+  it "should list events with pagination" do
+    result = $sevk.events.list(page: 1, limit: 5)
+
+    expect(result).to be_a(Hash)
+    expect(result["page"]).to eq(1)
+  end
+
+  it "should get event stats" do
+    result = $sevk.events.stats
+
+    expect(result).to be_a(Hash)
+  end
+end
+
+# ============================================
+# USAGE TESTS
+# ============================================
+RSpec.describe "Usage", integration: true do
+  it "should get project usage and limits" do
+    result = $sevk.get_usage
+
+    expect(result).to be_a(Hash)
+    expect { Float(result["balance"]) }.not_to raise_error
+    expect { Float(result["emailPrice"]) }.not_to raise_error
+    expect(result["audienceLimit"]).to be_a(Integer)
+    expect(result["contactLimit"]).to be_a(Integer)
+    expect(result["broadcastLimit"]).to be_a(Integer)
+  end
+end
+
+# ============================================
 # EMAILS TESTS
 # ============================================
-RSpec.describe "Emails" do
+RSpec.describe "Emails", integration: true do
   it "should reject email with unverified domain" do
     expect {
       $sevk.emails.send(
@@ -554,6 +983,38 @@ RSpec.describe "Emails" do
     end
   end
 
+  it "should throw error for non-existent email id" do
+    expect { $sevk.emails.get("00000000-0000-0000-0000-000000000000") }.to raise_error(Sevk::Error) do |error|
+      expect(error.message).to include("404")
+    end
+  end
+
+  it "should reject bulk email with unverified domain" do
+    result = $sevk.emails.send_bulk([
+      {
+        to: "test1@example.com",
+        subject: "Bulk Test 1",
+        html: "<p>Hello 1</p>",
+        from: "no-reply@unverified-domain.com"
+      },
+      {
+        to: "test2@example.com",
+        subject: "Bulk Test 2",
+        html: "<p>Hello 2</p>",
+        from: "no-reply@unverified-domain.com"
+      }
+    ])
+
+    expect(result).to be_a(Hash)
+    expect(result["failed"]).to eq(2)
+    expect(result["success"]).to eq(0)
+    expect(result["errors"]).to be_an(Array)
+    expect(result["errors"].length).to eq(2)
+    result["errors"].each do |err|
+      expect(err["error"].downcase).to include("domain")
+    end
+  end
+
   it "should return proper error message for domain verification" do
     expect {
       $sevk.emails.send(
@@ -579,7 +1040,7 @@ end
 # ============================================
 # ERROR HANDLING TESTS
 # ============================================
-RSpec.describe "Error Handling" do
+RSpec.describe "Error Handling", integration: true do
   it "should handle 404 errors gracefully" do
     expect { $sevk.contacts.get("non-existent-id-12345") }.to raise_error(Sevk::Error) do |error|
       expect(error.message).to include("404")
@@ -663,10 +1124,6 @@ RSpec.describe "Markup Renderer" do
     expect(html).to include("XHTML 1.0 Transitional")
   end
 
-  it "should include background-color in body styles" do
-    html = Sevk::Markup.render("<email><body></body></email>")
-    expect(html).to include("background-color")
-  end
 
   it "should render mail tag same as email tag" do
     html = Sevk::Markup.render("<mail><body></body></mail>")

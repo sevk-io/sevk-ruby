@@ -30,6 +30,14 @@ module Sevk
       def delete(audience_id, segment_id)
         client.delete("/audiences/#{audience_id}/segments/#{segment_id}")
       end
+
+      def calculate(audience_id, segment_id)
+        client.get("/audiences/#{audience_id}/segments/#{segment_id}/calculate")
+      end
+
+      def preview(audience_id, data)
+        client.post("/audiences/#{audience_id}/segments/preview", data)
+      end
     end
   end
 end

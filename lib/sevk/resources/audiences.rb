@@ -36,6 +36,14 @@ module Sevk
       def add_contacts(audience_id, contact_ids)
         client.post("/audiences/#{audience_id}/contacts", { contactIds: contact_ids })
       end
+
+      def list_contacts(audience_id, params = {})
+        client.get("/audiences/#{audience_id}/contacts#{build_query_string(params)}")
+      end
+
+      def remove_contact(audience_id, contact_id)
+        client.delete("/audiences/#{audience_id}/contacts/#{contact_id}")
+      end
     end
   end
 end

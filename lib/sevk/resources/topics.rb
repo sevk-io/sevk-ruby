@@ -30,6 +30,18 @@ module Sevk
       def delete(audience_id, topic_id)
         client.delete("/audiences/#{audience_id}/topics/#{topic_id}")
       end
+
+      def add_contacts(audience_id, topic_id, contact_ids:)
+        client.post("/audiences/#{audience_id}/topics/#{topic_id}/contacts", { contactIds: contact_ids })
+      end
+
+      def remove_contact(audience_id, topic_id, contact_id)
+        client.delete("/audiences/#{audience_id}/topics/#{topic_id}/contacts/#{contact_id}")
+      end
+
+      def list_contacts(audience_id, topic_id, params = {})
+        client.get("/audiences/#{audience_id}/topics/#{topic_id}/contacts#{build_query_string(params)}")
+      end
     end
   end
 end

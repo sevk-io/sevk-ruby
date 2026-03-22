@@ -35,6 +35,18 @@ module Sevk
       def delete(id)
         client.delete("/contacts/#{id}")
       end
+
+      def bulk_update(updates)
+        client.put("/contacts/bulk-update", updates)
+      end
+
+      def import_csv(params)
+        client.post("/contacts/import", params)
+      end
+
+      def get_events(id)
+        client.get("/contacts/#{id}/events")
+      end
     end
   end
 end

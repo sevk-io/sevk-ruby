@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "sevk"
-require "faraday"
 
 RSpec.configure do |config|
   config.expect_with :rspec do |expectations|
