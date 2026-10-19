@@ -20,21 +20,6 @@ end
 desc "Run tests"
 task :test => :spec
 
-desc "Build the gem"
-task :build do
-  sh "gem build sevk.gemspec"
-end
-
-desc "Install the gem locally"
-task :install => :build do
-  sh "gem install sevk-*.gem"
-end
-
-desc "Release the gem to RubyGems"
-task :release => :build do
-  sh "gem push sevk-*.gem"
-end
-
 desc "Clean up build artifacts"
 task :clean do
   FileUtils.rm_f Dir.glob("sevk-*.gem")

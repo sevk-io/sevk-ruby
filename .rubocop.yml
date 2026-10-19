@@ -1,0 +1,59 @@
+AllCops:
+  TargetRubyVersion: 3.0
+  NewCops: enable
+  SuggestExtensions: false
+
+Layout/LineLength:
+  Max: 120
+
+Layout/EndOfLine:
+  EnforcedStyle: lf
+
+Metrics/AbcSize:
+  Max: 60
+  AllowedMethods:
+    - extract_all_style_attributes
+    - process_markup
+
+Metrics/ClassLength:
+  Max: 350
+
+Metrics/CyclomaticComplexity:
+  Max: 15
+  AllowedMethods:
+    - extract_all_style_attributes
+    - process_markup
+
+Metrics/MethodLength:
+  Max: 45
+  AllowedMethods:
+    - extract_all_style_attributes
+    - generate_html
+    - process_markup
+    - render_template
+
+Metrics/ModuleLength:
+  Max: 200
+
+Metrics/BlockLength:
+  Max: 45
+  Exclude:
+    - 'spec/**/*'
+
+Metrics/BlockNesting:
+  Max: 4
+
+Metrics/PerceivedComplexity:
+  Max: 20
+  AllowedMethods:
+    - extract_all_style_attributes
+    - process_markup
+
+Metrics/ParameterLists:
+  CountKeywordArgs: false
+
+Naming/AccessorMethodName:
+  Enabled: false
+
+Style/Documentation:
+  Enabled: false

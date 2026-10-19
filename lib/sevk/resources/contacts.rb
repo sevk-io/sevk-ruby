@@ -1,51 +1,66 @@
 # frozen_string_literal: true
 
-require_relative "base"
+require_relative 'base'
 
 module Sevk
   module Resources
     class Contacts < Base
-      def list(page: nil, limit: nil, search: nil)
-        params = { page: page, limit: limit, search: search }
+      UNSET = Object.new
+      private_constant :UNSET
+
+      # Lists contacts with optional pagination, search, and subscription filters.
+      def list(page: nil, limit: nil, after: nil, before: nil, search: nil, exclude_audience: nil, subscribed: nil)
+        params = { page: page, limit: limit, after: after, before: before, search: search,
+                   excludeAudience: exclude_audience }
+        params[:subscribed] = subscribed unless subscribed.nil?
+
         client.get("/contacts#{build_query_string(params)}")
       end
 
+      # Retrieves a contact by id.
       def get(id)
         client.get("/contacts/#{id}")
       end
 
-      def create(email:, first_name: nil, last_name: nil, subscribed: nil, metadata: nil)
+      # Creates a contact and optionally attaches custom metadata.
+      def create(email:, subscribed: nil, data: nil)
         body = { email: email }
-        body[:firstName] = first_name if first_name
-        body[:lastName] = last_name if last_name
         body[:subscribed] = subscribed unless subscribed.nil?
-        body[:metadata] = metadata if metadata
-        client.post("/contacts", body)
+        body[:data] = data unless data.nil?
+
+        client.post('/contacts', body)
       end
 
-      def update(id, first_name: nil, last_name: nil, subscribed: nil, metadata: nil)
+      # Updates a contact. Explicit nil clears metadata; omitted data preserves it.
+      def update(id, email: nil, subscribed: nil, data: UNSET)
         body = {}
-        body[:firstName] = first_name if first_name
-        body[:lastName] = last_name if last_name
+        body[:email] = email unless email.nil?
         body[:subscribed] = subscribed unless subscribed.nil?
-        body[:metadata] = metadata if metadata
+        body[:data] = data unless data.equal?(UNSET)
+
         client.put("/contacts/#{id}", body)
       end
 
+      # Deletes a contact and removes its audience and topic memberships.
       def delete(id)
         client.delete("/contacts/#{id}")
       end
 
+      # Updates multiple contacts by email and reports entries that were not found.
       def bulk_update(updates)
-        client.put("/contacts/bulk-update", updates)
+        client.put('/contacts/bulk-update', updates)
       end
 
-      def import_csv(params)
-        client.post("/contacts/import", params)
+      # Imports contacts in one request, optionally attaching them to a group.
+      def bulk_import(params)
+        client.post('/contacts/import', wire_keys(params))
       end
 
-      def get_events(id)
-        client.get("/contacts/#{id}/events")
+      # Lists delivery and engagement activity for a contact.
+      def activity(id, page: nil, limit: nil, after: nil, before: nil)
+        params = { page: page, limit: limit, after: after, before: before }
+
+        client.get("/contacts/#{id}/activity#{build_query_string(params)}")
       end
     end
   end
