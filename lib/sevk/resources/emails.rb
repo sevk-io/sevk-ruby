@@ -1,54 +1,105 @@
 # frozen_string_literal: true
 
-require_relative "base"
+require_relative 'base'
+require_relative '../markup/renderer'
 
 module Sevk
   module Resources
     class Emails < Base
-      # Send an email with optional attachments
-      #
-      # @param to [String, Array<String>] Recipient email(s)
-      # @param subject [String] Email subject
-      # @param html [String] HTML content
-      # @param from [String] Sender email
-      # @param from_name [String, nil] Sender name
-      # @param reply_to [String, nil] Reply-to address
-      # @param text [String, nil] Plain text content
-      # @param headers [Hash, nil] Custom headers
-      # @param tags [Array, nil] Tags
-      # @param attachments [Array<Hash>, nil] Attachments (max 10, 10MB total)
-      #   Each attachment: { filename: String, content: String (base64), content_type: String }
-      # @return [Hash] Response with :id or :ids
-      def send(to:, subject:, html:, from:, from_name: nil, reply_to: nil, text: nil, headers: nil, tags: nil, attachments: nil)
+      # Sends one transactional email, rendering local markup when supplied.
+      def send(to:, subject:, from:, html: nil, text: nil, markup: nil, reply_to: nil, cc: nil, bcc: nil,
+               attachments: nil, tracking: nil, headers: nil, scheduled_at: nil, options: nil)
         body = {
           to: to,
           subject: subject,
-          html: html,
           from: from
         }
-        body[:fromName] = from_name if from_name
-        body[:replyTo] = reply_to if reply_to
-        body[:text] = text if text
-        body[:headers] = headers if headers
-        body[:tags] = tags if tags
-        body[:attachments] = attachments if attachments
-        client.post("emails", body)
+        body[:html] = html unless html.nil?
+        body[:html] = Sevk::Markup::Renderer.new.render(markup) if markup && !markup.empty?
+        body[:text] = text unless text.nil?
+        body[:reply_to] = reply_to unless reply_to.nil?
+        body[:cc] = cc unless cc.nil?
+        body[:bcc] = bcc unless bcc.nil?
+        body[:attachments] = normalize_attachments(attachments) unless attachments.nil?
+        body[:tracking] = tracking unless tracking.nil?
+        body[:headers] = headers unless headers.nil?
+        body[:scheduledAt] = scheduled_at unless scheduled_at.nil?
+
+        client.post('/emails', body, headers: idempotency_headers(options))
       end
 
-      # Send multiple emails in bulk
-      #
-      # @param emails [Array<Hash>] Array of email parameter hashes (max 100)
-      # @return [Hash] Response with :success, :failed, :ids, :errors
-      def send_bulk(emails)
-        client.post("emails/bulk", { emails: emails })
+      # Sends up to 100 transactional emails and returns per-request results.
+      def send_bulk(emails, options: nil)
+        unless emails.is_a?(Array)
+          return client.post('/emails/bulk', { emails: emails }, headers: idempotency_headers(options))
+        end
+
+        wire_emails = emails.map do |email|
+          next email unless email.is_a?(Hash)
+
+          payload = email.dup
+          symbol_markup = payload.delete(:markup)
+          string_markup = payload.delete('markup')
+          mk = symbol_markup.nil? ? string_markup : symbol_markup
+          unless mk.nil? || mk.empty?
+            payload.delete(:html)
+            payload.delete('html')
+            payload[:html] = Sevk::Markup::Renderer.new.render(mk)
+          end
+          attachments = payload[:attachments] || payload['attachments']
+          if attachments
+            payload.delete('attachments')
+            payload[:attachments] = normalize_attachments(attachments)
+          end
+          payload
+        end
+
+        client.post('/emails/bulk', { emails: wire_emails }, headers: idempotency_headers(options))
       end
 
-      # Get an email by ID
-      #
-      # @param id [String] Email ID
-      # @return [Hash] Email details
+      # Retrieves a sent email and its current delivery state.
       def get(id)
         client.get("/emails/#{id}")
+      end
+
+      # moves an unattempted scheduled email to a new delivery time.
+      def update(id, scheduled_at:)
+        client.patch("/emails/#{id}", { scheduledAt: scheduled_at })
+      end
+
+      # cancels an unattempted scheduled email.
+      def cancel(id)
+        client.post("/emails/#{id}/cancel")
+      end
+
+      private
+
+      def normalize_attachments(attachments)
+        return attachments unless attachments.is_a?(Array)
+
+        attachments.map do |attachment|
+          next attachment unless attachment.is_a?(Hash)
+
+          normalized = attachment.dup
+          content_type = normalized.delete(:content_type)
+          content_type = normalized.delete('content_type') if content_type.nil?
+          unless content_type.nil? || normalized.key?(:contentType) || normalized.key?('contentType')
+            normalized[:contentType] = content_type
+          end
+
+          normalized
+        end
+      end
+
+      # Builds the optional idempotency header used to make retries safe.
+      def idempotency_headers(options)
+        return nil unless options
+
+        return nil unless options.key?(:idempotency_key) || options.key?('idempotency_key')
+
+        key = options.key?(:idempotency_key) ? options[:idempotency_key] : options['idempotency_key']
+
+        { 'Idempotency-Key' => key.to_s }
       end
     end
   end

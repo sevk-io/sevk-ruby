@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://sevk.io/logo.png" alt="Sevk" width="120" />
+  <img src="https://sevk.io/logo.png" alt="sevk" width="120" />
 </p>
 
-<h1 align="center">Sevk Ruby SDK</h1>
+<h1 align="center">sevk Ruby SDK</h1>
 
 <p align="center">
-  Official Ruby SDK for <a href="https://sevk.io">Sevk</a> email platform.
+  Official Ruby SDK for <a href="https://sevk.io">sevk</a> email platform.
 </p>
 
 <p align="center">
@@ -24,12 +24,12 @@ gem install sevk
 ```ruby
 require 'sevk'
 
-client = Sevk::Client.new('your-api-key')
+client = Sevk::Client.new(api_key: 'your-api-key')
 
 client.emails.send(
   to: 'recipient@example.com',
   from: 'hello@yourdomain.com',
-  subject: 'Hello from Sevk!',
+  subject: 'Hello from sevk!',
   html: '<h1>Welcome!</h1>'
 )
 ```
@@ -39,7 +39,7 @@ client.emails.send(
 ```ruby
 require 'sevk'
 
-client = Sevk::Client.new('your-api-key')
+client = Sevk::Client.new(api_key: 'your-api-key')
 
 html = Sevk::Markup.render(<<~MARKUP
   <section padding="40px 20px" background-color="#f8f9fa">

@@ -2,12 +2,23 @@
 
 module Sevk
   class Error < StandardError
-    attr_reader :status_code, :code, :response
+    attr_reader :status_code, :code, :fields, :retry_after, :response, :details
 
-    def initialize(message = nil, status_code: nil, code: nil, response: nil)
+    def initialize(
+      message = nil,
+      status_code: nil,
+      code: nil,
+      fields: nil,
+      retry_after: nil,
+      response: nil,
+      details: nil
+    )
       @status_code = status_code
       @code = code
+      @fields = fields || {}
+      @retry_after = retry_after
       @response = response
+      @details = details
       super(message)
     end
 
@@ -27,14 +38,36 @@ module Sevk
       status_code == 400
     end
 
+    def conflict?
+      status_code == 409
+    end
+
+    def validation_error?
+      status_code == 422 ||
+        (status_code == 400 && (code == 'VALIDATION_ERROR' || !fields.empty?))
+    end
+
+    def rate_limited?
+      status_code == 429
+    end
+
     def server_error?
       status_code.to_i >= 500 && status_code.to_i < 600
     end
   end
 
-  class AuthenticationError < Error; end
+  class BadRequestError < Error; end
+  class UnauthorizedError < Error; end
+  class ForbiddenError < Error; end
   class NotFoundError < Error; end
-  class ValidationError < Error; end
+  class ConflictError < Error; end
+
+  class ValidationError < Error
+    def initialize(message = nil, status_code: 0, code: 'VALIDATION_ERROR', **attributes)
+      super
+    end
+  end
+
   class RateLimitError < Error; end
-  class ServerError < Error; end
+  class InternalServerError < Error; end
 end
